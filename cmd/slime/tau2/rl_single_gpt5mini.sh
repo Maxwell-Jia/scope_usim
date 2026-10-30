@@ -5,6 +5,8 @@
 # Agent (trainable): Qwen3-4B-Instruct-2507 via SGLang
 # User sim (fixed): gpt-5-mini via OpenAI API
 # Date: 2026-03-13 (0313 baseline)
+# 2026-10-28 适配 MLP/Hope 1.1.0 镜像提交：Megatron 就地切换到 slime 固定
+# commit（env_prepare.sh 完成），路径/模型目录改为环境变量注入。
 #
 # Node use: before launching, this script kills every SGLang and Ray
 # process on the machine (pkill -9 sglang; ray stop --force; pkill -9 ray)
@@ -43,7 +45,10 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 SLIME_DIR="${PROJECT_ROOT}/slime"
 
 OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/results/tau2_rl_single_gpt5mini/$(date +%Y%m%d_%H%M%S)}"
-MODEL_DIR="${MODEL_DIR:?set MODEL_DIR to the directory that holds the model checkpoints; see cmd/slime/README.md}"
+MODEL_DIR="${MODEL_DIR:-/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mtai/users/jiaminghui06/hf_models}"
+
+# Megatron 已由 env_prepare.sh checkout 到 slime 固定 commit 并打 patch。
+MEGATRON_DIR="${MEGATRON_DIR:-${PROJECT_ROOT}/Megatron-LM}"
 
 mkdir -p "${OUTPUT_DIR}"
 
@@ -146,7 +151,7 @@ ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-s
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
-    \"PYTHONPATH\": \"/root/Megatron-LM/\",
+    \"PYTHONPATH\": \"${MEGATRON_DIR}/\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
     \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\"
   }

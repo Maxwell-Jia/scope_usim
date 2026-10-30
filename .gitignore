@@ -42,6 +42,7 @@ out/
 
 # Experiment trackers, outputs, and service state
 wandb/
+/Megatron-LM/
 /results/
 /human_study/results/
 /human_study/analysis/
