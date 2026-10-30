@@ -253,13 +253,19 @@ class Tau2Environment:
         self._domain = domain
         self._task_id = task_id
 
-        # litellm needs provider prefix for non-OpenAI models
+        # litellm routes by model-name prefix and ignores api_base for routing,
+        # so each endpoint needs a prefix that declares its protocol:
         # OpenRouter models: openrouter/google/gemini-3-flash-preview
+        # Friday gateway (OpenAI-compatible): openai/<model>, names are Friday-local
+        # and would otherwise be misrouted (gemini-* -> Google, deepseek-* -> error)
         # OpenAI models: gpt-5-mini (litellm recognizes natively)
         litellm_model = user_model
         if user_model and "openrouter" in (user_base_url or ""):
             if not user_model.startswith("openrouter/"):
                 litellm_model = f"openrouter/{user_model}"
+        elif user_model and "aigc.sankuai.com" in (user_base_url or ""):
+            if not user_model.startswith("openai/"):
+                litellm_model = f"openai/{user_model}"
 
         # Pick the right env subclass. VS takes precedence over the
         # configured-prefix baseline: the VS env class still accepts a
@@ -279,6 +285,7 @@ class Tau2Environment:
             user_llm=litellm_model,
             user_llm_args={
                 "api_key": user_api_key,
+                "api_base": user_base_url,
             },
         )
         if verbalized_sampling:
