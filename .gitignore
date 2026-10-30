@@ -49,3 +49,4 @@ wandb/
 /human_study/screenshots/
 /human_study/deploy/.env.local
 /cmd/slime/**/CRASH_LOG_*.md
+hope/runs/
