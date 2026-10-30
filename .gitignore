@@ -43,6 +43,7 @@ out/
 # Experiment trackers, outputs, and service state
 wandb/
 /Megatron-LM/
+/SGLang/
 /results/
 /human_study/results/
 /human_study/analysis/
