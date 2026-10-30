@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # tau2-bench retail, single-simulator collapse study: train
-# Qwen3-4B-Instruct-2507 against a frozen Gemini 3 Flash user.
+# Qwen3-4B-Instruct-2507 against a frozen Gemini user.
 # Agent (trainable): Qwen3-4B-Instruct-2507 via SGLang
-# User sim (fixed): google/gemini-3-flash-preview via OpenRouter
-# Date: 2026-03-13 (0313 baseline)
+# User sim (fixed): gemini-3.1-flash-lite via the Friday gateway
 #
 # Node use: before launching, this script kills every SGLang and Ray
 # process on the machine (pkill -9 sglang; ray stop --force; pkill -9 ray)
@@ -71,14 +70,14 @@ ROLLOUT_ARGS=(
 
 # USIM-specific arguments
 # Agent (trainable) = Qwen3-4B-Instruct via SGLang
-# User sim (fixed opponent) = google/gemini-3-flash-preview via OpenRouter
+# User sim (fixed opponent) = gemini-3.1-flash-lite via Friday
 USIM_ARGS=(
    --trainable-role agent
    --max-turns 30
    --usim-domain retail
-   --usim-fixed-opponent-model "google/gemini-3-flash-preview"
-   --usim-fixed-opponent-base-url "https://openrouter.ai/api/v1"
-   --usim-fixed-opponent-api-key-var "OPENROUTER_API_KEY"
+   --usim-fixed-opponent-model "gemini-3.1-flash-lite"
+   --usim-fixed-opponent-base-url "https://aigc.sankuai.com/v1/openai/native"
+   --usim-fixed-opponent-api-key-var "FRIDAY_API_KEY"
 )
 
 PERF_ARGS=(
@@ -108,12 +107,17 @@ GRPO_ARGS=(
 WANDB_ARGS=(
    --use-wandb
    --wandb-project "${WANDB_PROJECT:-scope}"
-   --wandb-group qwen3-4B-Instruct-2507-tau2-gemini-0313
+   --wandb-group qwen3-4B-Instruct-2507-tau2-gemini-1030
 )
+
+TB_ARGS=(
+   --use-tensorboard
+)
+export TENSORBOARD_DIR="${TENSORBOARD_DIR:-${OUTPUT_DIR}/tensorboard}"
 
 # Eval config (template in eval_configs/, resolved at runtime)
 EVAL_CONFIG_FILE="${OUTPUT_DIR}/eval_config.yaml"
-envsubst < "${PROJECT_ROOT}/eval_configs/tau2_retail_6model.yaml" > "${EVAL_CONFIG_FILE}"
+envsubst < "${PROJECT_ROOT}/eval_configs/tau2_retail_friday_3model.yaml" > "${EVAL_CONFIG_FILE}"
 
 EVAL_ARGS=(
    --eval-interval 16
@@ -148,9 +152,10 @@ ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-s
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
-    \"PYTHONPATH\": \"/root/Megatron-LM/\",
+    \"PYTHONPATH\": \"${PROJECT_ROOT}/Megatron-LM/\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
-    \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\"
+    \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
+    \"TENSORBOARD_DIR\": \"${TENSORBOARD_DIR}\"
   }
 }"
 
@@ -170,4 +175,5 @@ ray job submit --address="http://127.0.0.1:8265" \
    ${PERF_ARGS[@]} \
    ${SGLANG_ARGS[@]} \
    ${MISC_ARGS[@]} \
-   ${WANDB_ARGS[@]}
+   ${WANDB_ARGS[@]} \
+   ${TB_ARGS[@]}
