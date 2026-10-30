@@ -25,6 +25,8 @@ fi
 
 set -e
 
+source /opt/venv/bin/activate
+
 export PYTHONUNBUFFERED=1
 export WEAVE_PRINT_CALL_LINK=false
 
