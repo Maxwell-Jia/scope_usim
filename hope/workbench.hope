@@ -1,0 +1,48 @@
+[base]
+type = ml-easy-job
+
+[resource]
+usergroup = hadoop-mtai
+queue = root.zw05_training_cluster.hadoop-llm.pool
+
+[roles]
+workers = 1
+worker.memory = 100000
+worker.vcore = 16
+worker.gcores80g = 1
+worker.ports = 1
+worker.script = sleep 7200
+afo.app.name = SCOPE-Convert-TorchDist-20261028-01
+
+[am]
+am.vcore = 1
+am.memory = 1024
+afo.app.am.resource.mb = 4096
+
+[tensorboard]
+with.tensor.board = false
+
+[docker]
+afo.docker.image.name = registry-offlinebiz.sankuai.com/custom_prod/com.sankuai.data.hadoop.gpu/mtai/training_slime_e716fc99:1.1.0
+
+[data]
+afo.data.prefetch = false
+
+[others]
+afo.network.mode = TCP
+with_requirements = false
+afo.use.acceleration.submission = true
+afo.use.host.network = true
+afo.host_network.min_num = 0
+source.system = kinet
+pc.use.dolphinfs.users = hadoop-mtai
+afo.dolphinfs.otherusers = hadoop-mtai
+afo.docker.rw.volume.paths = /mnt/dolphinfs/hdd_pool/docker/user/hadoop-mtai,/mnt/dolphinfs/ssd_pool/docker/user/hadoop-mtai
+afo.app.env.YARN_CONTAINER_RUNTIME_DOCKER_SHM_SIZE_BYTES = 68719476736
+afo.app.env.YARN_CONTAINER_RUNTIME_DOCKER_ULIMITS = memlock=-1
+afo.role.worker.env.INIT_SCRIPT_SSHD_ENABLED = true
+afo.role.worker.env.INIT_SCRIPT_SSHD_PASSWORD = abc123
+afo.role.worker.env.INIT_SCRIPT_SSHD_PROT = 22
+
+[failover]
+afo.app.support.engine.failover = false
