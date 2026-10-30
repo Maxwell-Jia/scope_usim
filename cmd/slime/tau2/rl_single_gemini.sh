@@ -115,9 +115,10 @@ TB_ARGS=(
 )
 export TENSORBOARD_DIR="${TENSORBOARD_DIR:-${OUTPUT_DIR}/tensorboard}"
 
-# Eval config (template in eval_configs/, resolved at runtime)
+# Eval config (no ${...} variables inside, so a plain copy is enough —
+# the training image has no envsubst/gettext).
 EVAL_CONFIG_FILE="${OUTPUT_DIR}/eval_config.yaml"
-envsubst < "${PROJECT_ROOT}/eval_configs/tau2_retail_friday_3model.yaml" > "${EVAL_CONFIG_FILE}"
+cp "${PROJECT_ROOT}/eval_configs/tau2_retail_friday_3model.yaml" "${EVAL_CONFIG_FILE}"
 
 EVAL_ARGS=(
    --eval-interval 16
