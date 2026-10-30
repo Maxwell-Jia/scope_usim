@@ -1,25 +1,34 @@
 """
-GPU 持续计算守护进程，防止因 GPU 利用率低被集群 kill。
+GPU keeper: sustain a steady GPU load so the platform does not reclaim the
+job for low utilization during idle stages (conversion, init, rollout gaps).
 
-用法:
+Strategy follows the longcat-rl BGE server, which was never killed: compute
+in long continuous bursts instead of reacting to a threshold with short
+ramp-up/drop cycles. The only pause is a short probe — if the GPU stays busy
+without the keeper, external work is running and the keeper yields.
+
+Usage:
     python3 gpu_continuous_compute.py --gpu_number 8 --duration 0
-    duration=0 表示永久运行，直到被 kill 为止。
+    duration=0 runs until killed.
 """
-import os
-import sys
-import time
 import argparse
-import threading
+import os
 import subprocess
+import threading
+import time
 
 import torch
+
+BURST_SECONDS = 3.0     # continuous compute between probes
+PROBE_PAUSE = 1.0       # pause so the reading reflects external load only
+BACKOFF_SECONDS = 60.0  # yield while external work keeps the GPU busy
 
 
 def get_visible_gpu_indices(gpu_number: int):
     """
-    返回当前进程实际可见的物理 GPU 编号列表。
-    集群通过 CUDA_VISIBLE_DEVICES 做隔离，必须用这个才能查对应的物理卡。
-    若未设置 CUDA_VISIBLE_DEVICES，则返回 [0, 1, ..., gpu_number-1]。
+    Return the physical GPU ids visible to this process.
+    The cluster isolates GPUs via CUDA_VISIBLE_DEVICES, so the physical ids
+    must be resolved through it. Defaults to [0..gpu_number-1] if unset.
     """
     cvd = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if cvd and cvd != "NoDevFiles":
@@ -30,7 +39,7 @@ def get_visible_gpu_indices(gpu_number: int):
 
 
 def gpu_utilization(physical_gpu_id: int) -> int:
-    """用 nvidia-smi 查询指定物理 GPU 的当前利用率（%）。"""
+    """Read the current utilization (%) of a physical GPU via nvidia-smi."""
     try:
         out = subprocess.check_output(
             [
@@ -47,63 +56,51 @@ def gpu_utilization(physical_gpu_id: int) -> int:
 
 
 def keep_gpu_busy(logical_i: int, phys_i: int, threshold: int, stop_event: threading.Event):
-    """
-    每张卡独立一个线程，持续监控 + 矩阵乘法补偿。
-    - 利用率 < threshold 时立即开始矩阵乘法
-    - 利用率 >= threshold 时休眠 0.5s 后继续检测
-    """
     device = torch.device(f"cuda:{logical_i}")
-    sz = 8192  # A100 80GB: 8192x8192 float16 ~0.5 GB，能有效拉高利用率
+    sz = 8192  # A100 80GB: 8192x8192 float16 ~0.5 GB per matrix
     a = torch.rand(sz, sz, dtype=torch.float16, device=device)
     b = torch.rand(sz, sz, dtype=torch.float16, device=device)
 
     print(
-        f"[gpu_keeper] 线程启动: logical={logical_i} physical={phys_i} threshold={threshold}%",
+        f"[gpu_keeper] thread started: logical={logical_i} physical={phys_i} threshold={threshold}%",
         flush=True,
     )
 
     while not stop_event.is_set():
-        util = gpu_utilization(phys_i)
-        if util < threshold:
-            count = 0
-            while not stop_event.is_set():
-                for _ in range(10):
-                    a = a @ b
-                count += 1
-                if count % 3 == 0:
-                    torch.cuda.synchronize(logical_i)
-                    cur_util = gpu_utilization(phys_i)
-                    if cur_util >= threshold:
-                        print(
-                            f"[gpu_keeper] GPU{phys_i} 利用率恢复: {cur_util}% >= {threshold}%",
-                            flush=True,
-                        )
-                        break
-        else:
-            time.sleep(0.5)
+        burst_end = time.time() + BURST_SECONDS
+        while not stop_event.is_set() and time.time() < burst_end:
+            for _ in range(10):
+                a = a @ b
+            torch.cuda.synchronize(logical_i)
+        # Probe: pause briefly, then check whether external work keeps the
+        # GPU busy on its own.
+        stop_event.wait(PROBE_PAUSE)
+        if gpu_utilization(phys_i) >= threshold:
+            print(f"[gpu_keeper] GPU{phys_i} external load active, yielding {BACKOFF_SECONDS:.0f}s", flush=True)
+            stop_event.wait(BACKOFF_SECONDS)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GPU 持续计算守护进程")
-    parser.add_argument("--gpu_number", type=int, default=1, help="监控的 GPU 数量")
+    parser = argparse.ArgumentParser(description="GPU keeper daemon")
+    parser.add_argument("--gpu_number", type=int, default=1, help="number of GPUs to keep busy")
     parser.add_argument(
         "--gpu_utilization_threshold",
         type=int,
-        default=85,
-        help="GPU 利用率阈值（低于此值则触发矩阵乘法补偿）",
+        default=75,
+        help="probe threshold: utilization above this after a pause means external work is active",
     )
     parser.add_argument(
         "--duration",
         type=float,
         default=0,
-        help="运行时长（秒），0 表示永久运行",
+        help="run time in seconds; 0 runs until killed",
     )
     args = parser.parse_args()
 
     physical_ids = get_visible_gpu_indices(args.gpu_number)
     print(
-        f"[gpu_keeper] 监控物理 GPU: {physical_ids}, 阈值={args.gpu_utilization_threshold}%,"
-        f" duration={'永久' if args.duration == 0 else f'{args.duration}s'}",
+        f"[gpu_keeper] physical GPUs: {physical_ids}, threshold={args.gpu_utilization_threshold}%,"
+        f" duration={'forever' if args.duration == 0 else f'{args.duration}s'}",
         flush=True,
     )
 
@@ -125,11 +122,10 @@ def main():
             time.sleep(args.duration)
             stop_event.set()
         else:
-            # 永久运行，直到被 kill
             while True:
                 time.sleep(60)
     except KeyboardInterrupt:
-        print("[gpu_keeper] 收到中断，停止所有守护线程", flush=True)
+        print("[gpu_keeper] interrupted, stopping threads", flush=True)
         stop_event.set()
 
     for t in threads:
