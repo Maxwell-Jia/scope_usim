@@ -110,6 +110,9 @@ WANDB_ARGS=(
    --use-wandb
    --wandb-project "${WANDB_PROJECT:-scope}"
    --wandb-group qwen3-4B-Instruct-2507-tau2-gemini-1030
+   # slime calls wandb.util.generate_id() for the suffix, which wandb>=0.29
+   # removed; the suffix is pointless for offline single-job runs anyway.
+   --disable-wandb-random-suffix
 )
 
 TB_ARGS=(
