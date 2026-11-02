@@ -12,7 +12,8 @@
 #
 # Paths: MODEL_DIR (required) must contain Qwen3-4B-Instruct-2507/ and
 # Qwen3-4B-Instruct-2507_torch_dist/. OUTPUT_DIR defaults to
-# results/<run>/<timestamp> inside the repository. See cmd/slime/README.md.
+# results/<run> inside the repository, with a YYYYMMDD_HHMM suffix added
+# at launch (Asia/Shanghai). See cmd/slime/README.md.
 
 # Stop SGLang and Ray processes left on this node (see the header).
 if [ "${SKIP_PROCESS_CLEANUP:-0}" != "1" ]; then
@@ -21,11 +22,14 @@ if [ "${SKIP_PROCESS_CLEANUP:-0}" != "1" ]; then
     ray stop --force 2>/dev/null || true
     pkill -9 ray 2>/dev/null || true
     sleep 3
+    pkill -f gpu_continuous_compute.py 2>/dev/null || true
 fi
 
 set -e
 
 source /opt/venv/bin/activate
+pip install --upgrade pip
+pip install --no-deps "pyarrow==25.0.1"
 
 export PYTHONUNBUFFERED=1
 export WEAVE_PRINT_CALL_LINK=false
@@ -43,7 +47,20 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 SLIME_DIR="${PROJECT_ROOT}/slime"
 
-OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/results/tau2_rl_single_gemini/$(date +%Y%m%d_%H%M%S)}"
+# GPU keeper: hold nvidia-smi utilization above the platform's idle-kill
+# threshold during rollout waits (moved here from the deleted cmd/env_prepare.sh).
+# Disable with GPU_KEEPER_ENABLED=false.
+if [ "${GPU_KEEPER_ENABLED:-true}" == "true" ]; then
+    KEEPER_LOG="${PROJECT_ROOT}/gpu_keeper_$(hostname).log"
+    python3 "${PROJECT_ROOT}/scripts/gpu_continuous_compute.py" \
+        --gpu_number 8 --gpu_utilization_threshold "${GPU_KEEPER_THRESHOLD:-75}" --duration 0 \
+        >"${KEEPER_LOG}" 2>&1 &
+    echo "GPU keeper started: pid=$! threshold=${GPU_KEEPER_THRESHOLD:-75}% log=${KEEPER_LOG}"
+fi
+
+# Recompute on every launcher invocation, including platform retries.
+# Retries within the same minute can still share an output directory.
+OUTPUT_DIR="${OUTPUT_DIR:-/mnt/dolphinfs/hdd_pool/docker/user/hadoop-mtai/users/jiaminghui06/exp_outputs/scope/tau2-retail-single-gemini}_$(TZ=Asia/Shanghai date +%Y%m%d_%H%M)"
 MODEL_DIR="${MODEL_DIR:?set MODEL_DIR to the directory that holds the model checkpoints; see cmd/slime/README.md}"
 
 mkdir -p "${OUTPUT_DIR}"
@@ -109,10 +126,14 @@ GRPO_ARGS=(
 WANDB_ARGS=(
    --use-wandb
    --wandb-project "${WANDB_PROJECT:-scope}"
-   --wandb-group qwen3-4B-Instruct-2507-tau2-gemini-1030
+   --wandb-group "qwen3-4B-Instruct-2507-tau2-gemini-$(TZ=Asia/Shanghai date +%y%m%d)"
    # slime calls wandb.util.generate_id() for the suffix, which wandb>=0.29
    # removed; the suffix is pointless for offline single-job runs anyway.
    --disable-wandb-random-suffix
+   # Without --wandb-dir wandb falls back to ./wandb under the Ray job's
+   # working directory inside the container, which is lost when the pod
+   # goes away. Point it at the DolphinFS output dir instead.
+   --wandb-dir "${OUTPUT_DIR}/wandb"
 )
 
 TB_ARGS=(
@@ -158,7 +179,7 @@ ray start --head --node-ip-address ${MASTER_ADDR} --num-gpus 8 --disable-usage-s
 
 RUNTIME_ENV_JSON="{
   \"env_vars\": {
-    \"PYTHONPATH\": \"${PROJECT_ROOT}/Megatron-LM/\",
+    \"PYTHONPATH\": \"${MEGATRON_DIR:-/opt/Megatron-LM}/\",
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
     \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
     \"TENSORBOARD_DIR\": \"${TENSORBOARD_DIR}\"

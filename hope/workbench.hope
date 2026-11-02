@@ -7,12 +7,12 @@ queue = root.zw05_training_cluster.hadoop-llm.pool
 
 [roles]
 workers = 1
-worker.memory = 100000
-worker.vcore = 16
-worker.gcores80g = 1
+worker.memory = 768000
+worker.vcore = 96
+worker.gcores80g = 8
 worker.ports = 1
 worker.script = sleep 7200
-afo.app.name = SCOPE-Convert-TorchDist-20261028-01
+afo.app.name = workbench_8_a100_80g
 
 [am]
 am.vcore = 1
@@ -23,7 +23,7 @@ afo.app.am.resource.mb = 4096
 with.tensor.board = false
 
 [docker]
-afo.docker.image.name = registry-offlinebiz.sankuai.com/custom_prod/com.sankuai.data.hadoop.gpu/mtai/training_slime_e716fc99:1.1.0
+afo.docker.image.name = registry-offlinebiz.sankuai.com/custom_prod/com.sankuai.data.hadoop.gpu/mtai/training_scope_c16160d6:1.0.0
 
 [data]
 afo.data.prefetch = false
