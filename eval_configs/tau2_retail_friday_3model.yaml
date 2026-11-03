@@ -1,6 +1,5 @@
 # tau2-bench retail evaluation — 3 models via Friday (company gateway)
-# Models: gemini-3.1-flash-lite / deepseek-v4-flash-meituan / gpt-5.4-mini
-# App ID: high-quota ...1831, injected at runtime via FRIDAY_API_KEY.
+# Models: deepseek-v4-flash-meituan / MiniMax-M3 / gpt-5.4-mini
 # Template: use envsubst to resolve ${PROJECT_ROOT} at runtime
 #   envsubst < eval_configs/tau2_retail_friday_3model.yaml > ${OUTPUT_DIR}/eval_config.yaml
 
@@ -13,7 +12,7 @@ eval:
     max_response_len: 16384
 
   datasets:
-    - name: tau2_retail_test_gemini
+    - name: tau2_retail_test_minimax
       path: "usim://tau2/retail/test"
       n_samples_per_eval_prompt: 4
       custom_generate_function_path: "usim.slime.rollout.usim_generate_rollout"
@@ -21,7 +20,7 @@ eval:
         domain: retail
         task_split: test
         max_tasks: 8
-        usim_fixed_opponent_model: "gemini-3.1-flash-lite"
+        usim_fixed_opponent_model: "MiniMax-M3"
         usim_fixed_opponent_base_url: "https://aigc.sankuai.com/v1/openai/native"
         usim_fixed_opponent_api_key_var: "FRIDAY_API_KEY"
 
