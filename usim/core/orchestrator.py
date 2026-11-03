@@ -141,9 +141,12 @@ class UserSimOrchestrator:
             # 3. Track assistant tokens from model output DIRECTLY
             #    Using model's token_ids and logprobs ensures exact match
             #    with what the model actually generated (critical for GRPO).
-            messages.append({"role": "assistant", "content": response_text})
             response_tokens = output["token_ids"]
             response_logprobs = output["logprobs"]
+            if len(all_tokens) + len(response_tokens) > self.config.max_context_length:
+                status = TrajectoryStatus.TRUNCATED
+                break
+            messages.append({"role": "assistant", "content": response_text})
             all_tokens.extend(response_tokens)
             all_masks.extend([1] * len(response_tokens))
             all_logprobs.extend(response_logprobs)
@@ -168,6 +171,9 @@ class UserSimOrchestrator:
             # template's trailing \n, so we pad it manually. loss_mask=0
             # because this is template structure, not model output.
             if self._inter_message_glue:
+                if len(all_tokens) + len(self._inter_message_glue) > self.config.max_context_length:
+                    status = TrajectoryStatus.TRUNCATED
+                    break
                 all_tokens.extend(self._inter_message_glue)
                 all_masks.extend([0] * len(self._inter_message_glue))
                 all_logprobs.extend([0.0] * len(self._inter_message_glue))
@@ -219,6 +225,7 @@ class UserSimOrchestrator:
                     f"Token limit after turn {turn}: {len(all_tokens)} + {len(delta)} "
                     f"would exceed {self.config.max_context_length}; dropping final delta"
                 )
+                messages.pop()
                 status = TrajectoryStatus.TRUNCATED
                 break
             
