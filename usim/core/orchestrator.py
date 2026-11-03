@@ -106,14 +106,6 @@ class UserSimOrchestrator:
         env_info: Dict[str, Any] = {}
 
         for turn in range(self.config.max_turns):
-            # Token limit check: only truncate when total length actually exceeds limit
-            if len(all_tokens) > self.config.max_context_length:
-                logger.warning(
-                    f"Token limit at turn {turn}: {len(all_tokens)} > "
-                    f"{self.config.max_context_length}"
-                )
-                status = TrajectoryStatus.TRUNCATED
-                break
 
             # 1. Generate via LLM (TITO: pass accumulated input_ids)
             try:
@@ -221,6 +213,15 @@ class UserSimOrchestrator:
             delta, mask = get_token_delta(
                 self.tokenizer, messages, tools_schema=tools_schema, postprocess=postprocess,
             )
+            
+            if len(all_tokens) + len(delta) > self.config.max_context_length:
+                logger.warning(
+                    f"Token limit after turn {turn}: {len(all_tokens)} + {len(delta)} "
+                    f"would exceed {self.config.max_context_length}; dropping final delta"
+                )
+                status = TrajectoryStatus.TRUNCATED
+                break
+            
             all_tokens.extend(delta)
             all_masks.extend(mask)
             all_logprobs.extend([0.0] * len(delta))
