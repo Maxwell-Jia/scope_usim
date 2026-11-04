@@ -4,8 +4,9 @@ job for low utilization during idle stages (conversion, init, rollout gaps).
 
 Strategy follows the longcat-rl BGE server, which was never killed: compute
 in long continuous bursts instead of reacting to a threshold with short
-ramp-up/drop cycles. The only pause is a short probe — if the GPU stays busy
-without the keeper, external work is running and the keeper yields.
+ramp-up/drop cycles. After each burst, pause briefly to probe external load.
+If the GPU stays busy without the keeper, yield and probe every 3 seconds
+until two consecutive readings fall below the threshold.
 
 Usage:
     python3 gpu_continuous_compute.py --gpu_number 8 --duration 0
@@ -19,9 +20,10 @@ import time
 
 import torch
 
-BURST_SECONDS = 3.0     # continuous compute between probes
-PROBE_PAUSE = 1.0       # pause so the reading reflects external load only
-BACKOFF_SECONDS = 60.0  # yield while external work keeps the GPU busy
+BURST_SECONDS = 3.0          # continuous compute between probes
+PROBE_PAUSE = 1.0            # pause before the initial external-load probe
+YIELD_PROBE_INTERVAL = 3.0    # time between probes while yielding
+RESUME_LOW_SAMPLES = 2       # consecutive readings below threshold to resume
 
 
 def get_visible_gpu_indices(gpu_number: int):
@@ -74,10 +76,27 @@ def keep_gpu_busy(logical_i: int, phys_i: int, threshold: int, stop_event: threa
             torch.cuda.synchronize(logical_i)
         # Probe: pause briefly, then check whether external work keeps the
         # GPU busy on its own.
-        stop_event.wait(PROBE_PAUSE)
+        if stop_event.wait(PROBE_PAUSE):
+            break
         if gpu_utilization(phys_i) >= threshold:
-            print(f"[gpu_keeper] GPU{phys_i} external load active, yielding {BACKOFF_SECONDS:.0f}s", flush=True)
-            stop_event.wait(BACKOFF_SECONDS)
+            print(
+                f"[gpu_keeper] GPU{phys_i} external load active, yielding; "
+                f"probing every {YIELD_PROBE_INTERVAL:.0f}s",
+                flush=True,
+            )
+            low_samples = 0
+            while low_samples < RESUME_LOW_SAMPLES:
+                if stop_event.wait(YIELD_PROBE_INTERVAL):
+                    return
+                if gpu_utilization(phys_i) < threshold:
+                    low_samples += 1
+                else:
+                    low_samples = 0
+            print(
+                f"[gpu_keeper] GPU{phys_i} load below {threshold}% for "
+                f"{RESUME_LOW_SAMPLES} consecutive probes, resuming compute",
+                flush=True,
+            )
 
 
 def main():
